@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def xgb_quantile_eval(preds, dmatrix, quantile=0.2):
+def xgb_quantile_eval(preds, dmatrix, quantile=0.5):
     """
     Customized evaluational metric that equals
     to quantile regression loss (also known as
@@ -22,7 +22,7 @@ def xgb_quantile_eval(preds, dmatrix, quantile=0.2):
                        (preds < labels) * quantile * (labels - preds)))
 
 
-def xgb_quantile_obj(preds, dmatrix, quantile=0.2):
+def xgb_quantile_obj(preds, dmatrix, quantile=0.5):
     """
     Computes first-order derivative of quantile
     regression loss and a non-degenerate
@@ -49,7 +49,7 @@ def xgb_quantile_obj(preds, dmatrix, quantile=0.2):
     labels = dmatrix.get_label()
     errors = preds - labels
 
-    left_mask = errors < 0
+    left_mask = errors <= 0
     right_mask = errors > 0
 
     grad = -quantile * left_mask + (1 - quantile) * right_mask
