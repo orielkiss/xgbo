@@ -1,7 +1,8 @@
 import pandas as pd
-from xgb_quantile_loss import xgb_quantile_obj, xgb_quantile_eval
 import xgboost as xgb
 import numpy as np
+import matplotlib.pyplot as plt
+from xgbo import XgboRegressor
 
 df = pd.read_hdf("../res/electron_data.root")
 
@@ -26,6 +27,9 @@ target = "ele_pt"
 
 print(df.head())
 
+# Create the XgboRegressor
+xgbo_reg = XgboRegressor()
+
 # Set up the DMatrix for xgboost
 train = xgb.DMatrix(df[features], label=df[target])
 
@@ -41,28 +45,8 @@ xgb_default = {'min_child_weight': 1,
 bst = xgb.train(xgb_default, train, 100)
 preds = bst.predict(train)
 
-"""
-bst68 = xgb.train(xgb_default, train, 1000,
-                obj=lambda preds, dmatrix : xgb_quantile_obj(preds, dmatrix, quantile=0.68))
-                #, feval=xgb_quantile_eval)
-preds68 = bst68.predict(train)
-
-bst32 = xgb.train(xgb_default, train, 1000,
-                obj=lambda preds, dmatrix : xgb_quantile_obj(preds, dmatrix, quantile=0.32))
-                #, feval=xgb_quantile_eval)
-preds32 = bst32.predict(train)
-
-stddev = (preds68 - preds32)/2
-
-import matplotlib.pyplot as plt
-plt.hist(preds32, bins=np.linspace(0, 100, 200), histtype='step')
-plt.hist(preds50, bins=np.linspace(0, 100, 200), histtype='step')
-plt.hist(preds68, bins=np.linspace(0, 100, 200), histtype='step')
+plt.hist(preds, bins=np.linspace(0, 100, 200), histtype='step')
 plt.show()
 
-plt.hist((preds50 - df[target]), bins=200)
+plt.hist((preds - df[target]), bins=200)
 plt.show()
-
-plt.hist((preds50 - df[target])/stddev, bins=np.linspace(-10, 10, 200))
-plt.show()
-"""

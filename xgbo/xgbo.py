@@ -6,6 +6,7 @@ import xgboost as xgb
 from scipy.special import logit
 import pandas as pd
 import time
+from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout
 
 # The space of hyperparameters for the Bayesian optimization
 hyperparams_ranges = {'min_child_weight': (1, 20),
@@ -50,85 +51,8 @@ def merge_two_dicts(x, y):
     z.update(y)    # modifies z with y's keys and values & returns None
     return z
 
-def callback_overtraining(best_test_auc, callback_status):
-
-    def callback(env):
-        train_auc = env.evaluation_result_list[0][1]
-        test_auc = env.evaluation_result_list[1][1]
-
-        if train_auc < best_test_auc:
-            return
-
-        if train_auc - test_auc > 1 - best_test_auc:
-            print("We have an overtraining problem! Stop boosting.")
-            callback_status["status"] = 2
-            raise xgb.core.EarlyStopException(env.iteration)
-
-    return callback
-
-def callback_timeout(max_time, best_test_auc, callback_status, n_fit=10):
-
-    start_time = time.time()
-
-    last_n_times = []
-    last_n_test_auc = []
-
-    status = {'counter': 0}
-
-    def callback(env):
-
-        if max_time == None:
-            return
-
-        run_time = time.time() - start_time
-
-        if run_time > max_time:
-            callback_status["status"] = 3
-            raise xgb.core.EarlyStopException(env.iteration)
-            print("Xgboost training took too long. Stop boosting.")
-            raise xgb.core.EarlyStopException(env.iteration)
-
-        last_n_test_auc.append(env.evaluation_result_list[1][1])
-        if len(last_n_test_auc) > n_fit:
-            del last_n_test_auc[0]
-
-        last_n_times.append(run_time)
-        if len(last_n_times) > n_fit:
-            del last_n_times[0]
-
-        if len(last_n_test_auc) < n_fit:
-            return
-
-        poly = np.polyfit(last_n_times, last_n_test_auc, deg=1)
-        guessed_test_auc_at_max_time  = np.polyval(poly, max_time)
-
-        if guessed_test_auc_at_max_time < best_test_auc and best_test_auc > 0.0:
-            status['counter'] = status['counter'] + 1
-        else:
-            status['counter'] = 0
-
-        if status['counter'] == n_fit:
-            callback_status["status"] = 2
-            raise xgb.core.EarlyStopException(env.iteration)
-            print("Test AUC does not converge well. Stop boosting.")
-            raise xgb.core.EarlyStopException(env.iteration)
-
-    return callback
-
-def callback_print_info(n_skip=10):
-
-    def callback(env):
-        n = env.iteration
-        train_auc = env.evaluation_result_list[0][1]
-        test_auc  = env.evaluation_result_list[1][1]
-
-        if n % n_skip == 0:
-            print("[{0:4d}]\ttrain-auc:{1:.6f}\ttest-auc:{2:.6f}".format(n, train_auc, test_auc))
-
-    return callback
-
-class XgbBoTrainer:
-    """Trains a xgboost classifier with Bayesian-optimized hyperparameters.
+class XgboFitter:
+    """Fits a xgboost classifier/regressor with Bayesian-optimized hyperparameters.
 
     Public attributes:
 
@@ -148,8 +72,9 @@ class XgbBoTrainer:
                  test_size         = 0.25,
                  max_n_per_class   = None,
                  nthread           = 16,
+                 regression        = False,
             ):
-        """The __init__ method for XgbBoTrainer class.
+        """The __init__ method for XgboFitter class.
 
         Args:
             data (pandas.DataFrame): The  data frame containing the features
@@ -173,12 +98,15 @@ class XgbBoTrainer:
 
         self.params_base = {
             'silent'      : 1,
-            'eval_metric' : 'auc',
             'verbose_eval': 0,
             'seed'        : self._random_state,
             'nthread'     : nthread,
             'objective'   : 'binary:logitraw',
             }
+
+        if not regression:
+            self.params_base['objective']   = 'binary;logitraw'
+            self.params_base['eval_metric'] = 'auc'
 
         # Entries from the class with more entries are discarded. This is because
         # classifier performance is usually bottlenecked by the size of the
@@ -333,3 +261,63 @@ class XgbBoTrainer:
         data["callback"] = self._callback_status
 
         return pd.DataFrame(data=data)
+
+
+class XgboRegressor(XgboFitter):
+    def __init__(self, data, X_cols, y_col,
+                 random_state      = 2018,
+                 num_rounds_max    = 3000,
+                 early_stop_rounds = 10,
+                 nfold             = 3,
+                 init_points       = 5,
+                 n_iter            = 50,
+                 max_run_time      = 180000, # 50 h
+                 train_time_factor = 5,
+                 test_size         = 0.25,
+                 max_n_per_class   = None,
+                 nthread           = 16,
+            ):
+        super(XgboRegressor, self).__init__(data, X_cols, y_col,
+                                            random_state      = random_state,
+                                            num_rounds_max    = num_rounds_max,
+                                            early_stop_rounds = early_stop_rounds,
+                                            nfold             = nfold,
+                                            init_points       = init_points,
+                                            n_iter            = n_iter,
+                                            max_run_time      = max_run_time, # 50 h
+                                            train_time_factor = train_time_factor,
+                                            test_size         = test_size,
+                                            max_n_per_class   = max_n_per_class,
+                                            nthread           = nthread,
+                                            regression        = True,
+                 )
+
+
+class XgboClassifier(XgboFitter):
+    def __init__(self, data, X_cols, y_col,
+                 random_state      = 2018,
+                 num_rounds_max    = 3000,
+                 early_stop_rounds = 10,
+                 nfold             = 3,
+                 init_points       = 5,
+                 n_iter            = 50,
+                 max_run_time      = 180000, # 50 h
+                 train_time_factor = 5,
+                 test_size         = 0.25,
+                 max_n_per_class   = None,
+                 nthread           = 16,
+            ):
+        super(XgboRegressor, self).__init__(data, X_cols, y_col,
+                                            random_state      = random_state,
+                                            num_rounds_max    = num_rounds_max,
+                                            early_stop_rounds = early_stop_rounds,
+                                            nfold             = nfold,
+                                            init_points       = init_points,
+                                            n_iter            = n_iter,
+                                            max_run_time      = max_run_time, # 50 h
+                                            train_time_factor = train_time_factor,
+                                            test_size         = test_size,
+                                            max_n_per_class   = max_n_per_class,
+                                            nthread           = nthread,
+                                            regression        = False,
+                 )
