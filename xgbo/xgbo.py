@@ -1,4 +1,3 @@
-from sklearn.model_selection import train_test_split
 from sklearn import metrics
 import numpy as np
 from bayes_opt import BayesianOptimization
@@ -60,7 +59,7 @@ class XgboFitter:
         _random_state (int): seed for random number generation
     """
 
-    def __init__(self, data, X_cols, y_col,
+    def __init__(self,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -70,7 +69,6 @@ class XgboFitter:
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
                  test_size         = 0.25,
-                 max_n_per_class   = None,
                  nthread           = 16,
                  regression        = False,
             ):
@@ -101,41 +99,12 @@ class XgboFitter:
             'verbose_eval': 0,
             'seed'        : self._random_state,
             'nthread'     : nthread,
-            'objective'   : 'binary:logitraw',
+            'objective'   : 'reg:linear',
             }
 
         if not regression:
             self.params_base['objective']   = 'binary;logitraw'
             self.params_base['eval_metric'] = 'auc'
-
-        # Entries from the class with more entries are discarded. This is because
-        # classifier performance is usually bottlenecked by the size of the
-        # dataset for the class with fewer entries. Having one class with extra
-        # statistics usually just adds computing time.
-        n_per_class = min(min(data[y_col].value_counts()), max_n_per_class)
-
-        # The number of entries per class can be limited by a parameter in case
-        # the dataset is just too large for this algorithm to run in a
-        # reasonable time.
-        if not max_n_per_class is None:
-            n_per_class = min(n_per_class, max_n_per_class)
-
-        data = pd.concat([data[data[y_col] == 0].head(n_per_class),
-                          data[data[y_col] == 1].head(n_per_class)])
-
-        # Split in testing and training subsamples
-        self.X_train, self.X_test, self.y_train, self.y_test = \
-                train_test_split(data[X_cols],
-                                 data[y_col],
-                                 random_state=self._random_state,
-                                 test_size=test_size)
-
-        print(self.X_train.columns)
-
-        # Save data in xgboosts DMatrix format so the encoding doesn't have to
-        # be repeated at every step of the Bayesian optimization.
-        self._xgtrain = xgb.DMatrix(self.X_train, label=self.y_train)
-        self._xgtest  = xgb.DMatrix(self.X_test, label=self.y_test)
 
         # Set up the Bayesian optimization
         self._bo = BayesianOptimization(self.evaluate_xgb,
@@ -192,7 +161,12 @@ class XgboFitter:
 
         return cv_result['test-auc-mean'].values[-1]
 
-    def run(self):
+    def fit(self, X_train, y_train):
+
+        # Save data in xgboosts DMatrix format so the encoding doesn't have to
+        # be repeated at every step of the Bayesian optimization.
+        self._xgtrain = xgb.DMatrix(X_train, label=y_train)
+        # self._xgtest  = xgb.DMatrix(self.X_test, label=self.y_test)
 
         self._start_time = time.time()
 
@@ -264,7 +238,7 @@ class XgboFitter:
 
 
 class XgboRegressor(XgboFitter):
-    def __init__(self, data, X_cols, y_col,
+    def __init__(self,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -274,11 +248,9 @@ class XgboRegressor(XgboFitter):
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
                  test_size         = 0.25,
-                 max_n_per_class   = None,
                  nthread           = 16,
             ):
-        super(XgboRegressor, self).__init__(data, X_cols, y_col,
-                                            random_state      = random_state,
+        super(XgboRegressor, self).__init__(random_state      = random_state,
                                             num_rounds_max    = num_rounds_max,
                                             early_stop_rounds = early_stop_rounds,
                                             nfold             = nfold,
@@ -287,14 +259,13 @@ class XgboRegressor(XgboFitter):
                                             max_run_time      = max_run_time, # 50 h
                                             train_time_factor = train_time_factor,
                                             test_size         = test_size,
-                                            max_n_per_class   = max_n_per_class,
                                             nthread           = nthread,
                                             regression        = True,
                  )
 
 
 class XgboClassifier(XgboFitter):
-    def __init__(self, data, X_cols, y_col,
+    def __init__(self, data,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -304,11 +275,9 @@ class XgboClassifier(XgboFitter):
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
                  test_size         = 0.25,
-                 max_n_per_class   = None,
                  nthread           = 16,
             ):
-        super(XgboRegressor, self).__init__(data, X_cols, y_col,
-                                            random_state      = random_state,
+        super(XgboRegressor, self).__init__(random_state      = random_state,
                                             num_rounds_max    = num_rounds_max,
                                             early_stop_rounds = early_stop_rounds,
                                             nfold             = nfold,
@@ -317,7 +286,6 @@ class XgboClassifier(XgboFitter):
                                             max_run_time      = max_run_time, # 50 h
                                             train_time_factor = train_time_factor,
                                             test_size         = test_size,
-                                            max_n_per_class   = max_n_per_class,
                                             nthread           = nthread,
                                             regression        = False,
                  )

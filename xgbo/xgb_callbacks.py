@@ -1,3 +1,5 @@
+import time
+
 def callback_overtraining(best_test_auc, callback_status):
 
     def callback(env):
@@ -71,6 +73,6 @@ def callback_print_info(n_skip=10):
         test_auc  = env.evaluation_result_list[1][1]
 
         if n % n_skip == 0:
-            print("[{0:4d}]\ttrain-auc:{1:.6f}\ttest-auc:{2:.6f}".format(n, train_auc, test_auc))
+            print("[{0:4d}]\ttrain-eval:{1:.6f}\ttest-eval:{2:.6f}".format(n, train_auc, test_auc))
 
     return callback

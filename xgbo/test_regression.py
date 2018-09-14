@@ -3,6 +3,7 @@ import xgboost as xgb
 import numpy as np
 import matplotlib.pyplot as plt
 from xgbo import XgboRegressor
+from sklearn.model_selection import train_test_split
 
 df = pd.read_hdf("../res/electron_data.root")
 
@@ -27,8 +28,14 @@ target = "ele_pt"
 
 print(df.head())
 
+# Split in testing and training subsamples
+X_train, X_test, y_train, y_test = \
+        train_test_split(df[features], df[target], random_state=99, test_size=0.25)
+
 # Create the XgboRegressor
 xgbo_reg = XgboRegressor()
+
+xgbo_reg.fit(X_train, y_train)
 
 # Set up the DMatrix for xgboost
 train = xgb.DMatrix(df[features], label=df[target])
