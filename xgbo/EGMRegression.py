@@ -26,7 +26,7 @@ def print_pcolor_labels(ax, X, Y, C):
             # text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=45, size=5)
             text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=0, size=7)
 
-def load_data(file_name, entrystop=20000):
+def load_data(file_name, entrystop=50000):
 
     root_file = uproot.open(file_name)
 
@@ -102,9 +102,10 @@ xgtrain = xgb.DMatrix(X_train, label=y_train)
 xgtest  = xgb.DMatrix(X_test , label=y_test)
 
 # Create the XgboRegressor
-xgbo_reg = XgboRegressor(early_stop_rounds=10)
+xgbo_reg = XgboRegressor(early_stop_rounds=20)
 
-xgbo_reg.optimize(xgtrain, init_points=20, n_iter=0, acq='ucb')
+xgbo_reg.optimize(xgtrain, init_points=20, n_iter=10, acq='ucb')
+xgbo_reg.optimize(xgtrain, init_points=20, n_iter=10, acq='ei')
 print(xgbo_reg.summary)
 xgbo_reg.fit(xgtrain, model="default")
 xgbo_reg.fit(xgtrain, model="optimized")

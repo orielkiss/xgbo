@@ -4,7 +4,7 @@ import xgboost as xgb
 from scipy.special import logit
 import pandas as pd
 import time
-from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout
+from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout, callback_replace_rms, early_stop
 
 
 def evaleffrms(preds, dtrain):
@@ -14,7 +14,22 @@ def evaleffrms(preds, dtrain):
     x = np.sort(preds/labels, kind='mergesort')
     m = int(0.683*len(x)) + 1
     effrms = np.min(x[m:] - x[:-m])/2.0
-    return 'effrms', effrms
+    return 'effrms', effrms #+ 10*(max(np.median(preds/labels), np.median(labels/preds)) - 1)
+
+def evalmedian(preds, dtrain):
+    labels = dtrain.get_label()
+    # return a pair metric_name, result. The metric name must not contain a colon (:) or a space
+    # since preds are margin(before logistic transformation, cutoff at 0)
+    return 'median', np.median(preds/labels)
+
+def evalcustom(preds, dtrain):
+    labels = dtrain.get_label()
+    # return a pair metric_name, result. The metric name must not contain a colon (:) or a space
+    # since preds are margin(before logistic transformation, cutoff at 0)
+    x = np.sort(preds/labels, kind='mergesort')
+    m = int(0.683*len(x)) + 1
+    effrms = np.min(x[m:] - x[:-m])/2.0
+    return 'custom', effrms * (max(np.median(preds/labels), np.median(labels/preds)) - 1)
 
 # The space of hyperparameters for the Bayesian optimization
 hyperparams_ranges = {'min_child_weight': (1, 20),
@@ -110,7 +125,7 @@ class XgboFitter(object):
             self._cv_cols =  ["train-effrms-mean", "train-effrms-std",
                               "test-effrms-mean", "test-effrms-std"]
 
-            self.params_base['eval_metric'] = 'effrms'
+            # self.params_base['eval_metric'] = 'effrms'
         else:
             self._cv_cols =  ["train-auc-mean", "train-auc-std",
                               "test-auc-mean", "test-auc-std"]
@@ -164,16 +179,15 @@ class XgboFitter(object):
 
         if self._regression:
             callbacks= [callback_print_info(),
-                        xgb.callback.early_stop(self._early_stop_rounds, verbose=True)]
+                        callback_replace_rms(),
+                        early_stop(self._early_stop_rounds, start_round=100, verbose=True)]
                         # callback_timeout(self._max_training_time, best_test_eval_metric, callback_status)]
-            metrics = 'effrms'
             feval   = evaleffrms
         else:
             callbacks= [callback_print_info(),
-                        xgb.callback.early_stop(self._early_stop_rounds, verbose=True),
+                        early_stop(self._early_stop_rounds, verbose=True),
                         callback_overtraining(best_test_eval_metric, callback_status),
                         callback_timeout(self._max_training_time, best_test_eval_metric, callback_status)]
-            metrics = 'auc'
             feval   = None
 
         callback_status = {"status": 0}
@@ -182,9 +196,7 @@ class XgboFitter(object):
                            nfold=self._nfold,
                            seed=self._random_state,
                            callbacks=callbacks,
-                           # metrics=metrics,
-                           #feval=feval
-                           )
+                           feval=feval)
 
         if self._max_training_time is None and not self._train_time_factor is None:
             self._max_training_time = self._train_time_factor * (time.time() - training_start_time)
