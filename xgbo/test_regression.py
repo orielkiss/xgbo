@@ -32,28 +32,20 @@ print(df.head())
 X_train, X_test, y_train, y_test = \
         train_test_split(df[features], df[target], random_state=99, test_size=0.25)
 
+# Set up the DMatrix for xgboost
+xgtrain = xgb.DMatrix(X_train, label=y_train)
+xgtest  = xgb.DMatrix(X_test , label=y_test)
+
 # Create the XgboRegressor
 xgbo_reg = XgboRegressor()
 
-xgbo_reg.fit(X_train, y_train)
+xgbo_reg.optimize(xgtrain, init_points=1, n_iter=1, acq='ei')
+print(xgbo_reg.summary)
+xgbo_reg.fit(xgtrain)
 
-# Set up the DMatrix for xgboost
-train = xgb.DMatrix(df[features], label=df[target])
+preds = xgbo_reg.predict(xgtest, model="optimized")
 
-# The default xgboost parameters
-xgb_default = {'min_child_weight': 1,
-               'colsample_bytree': 1,
-               'max_depth': 6,
-               'subsample': 1,
-               'gamma': 0,
-               'reg_alpha': 0,
-               'reg_lambda': 1}
 
-bst = xgb.train(xgb_default, train, 100)
-preds = bst.predict(train)
-
+plt.hist(df[target], bins=np.linspace(0, 100, 200), histtype='step')
 plt.hist(preds, bins=np.linspace(0, 100, 200), histtype='step')
-plt.show()
-
-plt.hist((preds - df[target]), bins=200)
-plt.show()
+# plt.show()

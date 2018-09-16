@@ -1,11 +1,20 @@
-from sklearn import metrics
 import numpy as np
-from bayes_opt import BayesianOptimization
+from bayesian_optimization import BayesianOptimization
 import xgboost as xgb
 from scipy.special import logit
 import pandas as pd
 import time
 from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout
+
+
+def evaleffrms(preds, dtrain):
+    labels = dtrain.get_label()
+    # return a pair metric_name, result. The metric name must not contain a colon (:) or a space
+    # since preds are margin(before logistic transformation, cutoff at 0)
+    x = np.sort(preds/labels, kind='mergesort')
+    m = int(0.683*len(x)) + 1
+    effrms = np.min(x[m:] - x[:-m])/2.0
+    return 'effrms', effrms
 
 # The space of hyperparameters for the Bayesian optimization
 hyperparams_ranges = {'min_child_weight': (1, 20),
@@ -50,7 +59,7 @@ def merge_two_dicts(x, y):
     z.update(y)    # modifies z with y's keys and values & returns None
     return z
 
-class XgboFitter:
+class XgboFitter(object):
     """Fits a xgboost classifier/regressor with Bayesian-optimized hyperparameters.
 
     Public attributes:
@@ -63,12 +72,8 @@ class XgboFitter:
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
-                 nfold             = 3,
-                 init_points       = 5,
-                 n_iter            = 50,
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
-                 test_size         = 0.25,
                  nthread           = 16,
                  regression        = False,
             ):
@@ -85,9 +90,6 @@ class XgboFitter:
         self._random_state      = random_state
         self._num_rounds_max    = num_rounds_max
         self._early_stop_rounds = early_stop_rounds
-        self._nfold             = nfold
-        self._init_points       = init_points
-        self._n_iter            = n_iter
         self._max_run_time      = max_run_time
         self._train_time_factor = train_time_factor
 
@@ -102,9 +104,21 @@ class XgboFitter:
             'objective'   : 'reg:linear',
             }
 
-        if not regression:
+        if regression:
+            # self._cv_cols =  ["train-rmse-mean", "train-rmse-std",
+                              # "test-rmse-mean", "test-rmse-std"]
+            self._cv_cols =  ["train-effrms-mean", "train-effrms-std",
+                              "test-effrms-mean", "test-effrms-std"]
+
+            self.params_base['eval_metric'] = 'effrms'
+        else:
+            self._cv_cols =  ["train-auc-mean", "train-auc-std",
+                              "test-auc-mean", "test-auc-std"]
+
             self.params_base['objective']   = 'binary;logitraw'
             self.params_base['eval_metric'] = 'auc'
+
+        self._regression = regression
 
         # Set up the Bayesian optimization
         self._bo = BayesianOptimization(self.evaluate_xgb,
@@ -119,12 +133,21 @@ class XgboFitter:
 
         # This dictionary will hold the xgboost models created when running
         # this training class.
-        self.models = {}
+        self._models = {}
 
-        self.cv_results = []
+        self._params = {}
+
+        self._cv_results = []
 
         #
         self._callback_status = []
+
+        self._tried_default = False
+
+        # self._summary = pd.DataFrame([
+            # "callback", "colsample_bytree", "gamma", "max_depth",
+            # "min_child_weight", "n_estimators", "reg_alpha", "reg_lambda",
+            # "stage", "subsample"] + self._cv_cols)
 
     def evaluate_xgb(self, **hyperparameters):
 
@@ -132,86 +155,96 @@ class XgboFitter:
                                                hyperparameters))
 
         if len(self._bo.res["all"]["values"]) == 0:
-            best_test_auc = 0.0
+            best_test_eval_metric = 0.0
         else:
-            best_test_auc = self._bo.res["all"]["values"][0]
+            best_test_eval_metric = self._bo.res["all"]["values"][0]
 
         if self._max_training_time is None and not self._train_time_factor is None:
             training_start_time = time.time()
+
+        if self._regression:
+            callbacks= [callback_print_info(),
+                        xgb.callback.early_stop(self._early_stop_rounds, verbose=True)]
+                        # callback_timeout(self._max_training_time, best_test_eval_metric, callback_status)]
+            metrics = 'effrms'
+            feval   = evaleffrms
+        else:
+            callbacks= [callback_print_info(),
+                        xgb.callback.early_stop(self._early_stop_rounds, verbose=True),
+                        callback_overtraining(best_test_eval_metric, callback_status),
+                        callback_timeout(self._max_training_time, best_test_eval_metric, callback_status)]
+            metrics = 'auc'
+            feval   = None
 
         callback_status = {"status": 0}
         cv_result = xgb.cv(params, self._xgtrain,
                            num_boost_round=self._num_rounds_max,
                            nfold=self._nfold,
                            seed=self._random_state,
-                           callbacks=[
-                               callback_print_info(),
-                               xgb.callback.early_stop(self._early_stop_rounds, verbose=True),
-                               callback_overtraining(best_test_auc, callback_status),
-                               callback_timeout(self._max_training_time, best_test_auc, callback_status),
-                           ])
+                           callbacks=callbacks,
+                           # metrics=metrics,
+                           #feval=feval
+                           )
 
         if self._max_training_time is None and not self._train_time_factor is None:
             self._max_training_time = self._train_time_factor * (time.time() - training_start_time)
 
         self._early_stops.append(len(cv_result))
 
-        self.cv_results.append(cv_result)
+        self._cv_results.append(cv_result)
         self._callback_status.append(callback_status['status'])
 
-        return cv_result['test-auc-mean'].values[-1]
+        if self._regression:
+            return -cv_result[self._cv_cols[2]].values[-1]
+        else:
+            return cv_result[self._cv_cols[2]].values[-1]
 
-    def fit(self, X_train, y_train):
+    def optimize(self, xgtrain, init_points=3, n_iter=3, nfold=3, acq="ei"):
+
+        self._init_points = init_points
+        self._nfold       = nfold
 
         # Save data in xgboosts DMatrix format so the encoding doesn't have to
         # be repeated at every step of the Bayesian optimization.
-        self._xgtrain = xgb.DMatrix(X_train, label=y_train)
-        # self._xgtest  = xgb.DMatrix(self.X_test, label=self.y_test)
+        self._xgtrain = xgtrain
 
         self._start_time = time.time()
 
         # Explore the default xgboost hyperparameters
-        self._bo.explore({k:[v] for k, v in xgb_default.items()}, eager=True)
+        if not self._tried_default:
+            self._bo.explore({k:[v] for k, v in xgb_default.items()}, eager=True)
+            self._tried_default = True
 
         # Do the Bayesian optimization
-        self._bo.maximize(init_points=self._init_points, n_iter=0, acq='ei')
+        self._bo.maximize(init_points=self._init_points, n_iter=0, acq=acq)
 
         self._started_bo = True
-        for i in range(self._n_iter):
-            self._bo.maximize(init_points=0, n_iter=1, acq='ei')
+        for i in range(n_iter):
+            self._bo.maximize(init_points=0, n_iter=1, acq=acq)
 
             if not self._max_run_time is None and time.time() - self._start_time > self._max_run_time:
                 print("Bayesian optimization timeout")
                 break
 
         # Set up the parameters for the default training
-        params_default = merge_two_dicts(self.params_base, xgb_default)
-        params_default["n_estimators"] = self._early_stops[0]
+        self._params["default"] = merge_two_dicts(self.params_base, xgb_default)
+        self._params["default"]["n_estimators"] = self._early_stops[0]
 
         # Set up the parameters for the Bayesian-optimized training
-        params_bo = merge_two_dicts(self.params_base,
+        self._params["optimized"] = merge_two_dicts(self.params_base,
                                     format_params(self._bo.res["max"]["max_params"]))
-        params_bo["n_estimators"] = self._early_stops[np.argmax(self._bo.res["all"]["values"])]
+        self._params["optimized"]["n_estimators"] = self._early_stops[np.argmax(self._bo.res["all"]["values"])]
 
-        # Fit default model to test sample
-        self.models["default"] = xgb.XGBClassifier(**params_default)
-        self.models["default"].fit(self.X_train, self.y_train)
+    def fit(self, xgtrain, model="optimized"):
+        print("Fitting with parameters")
+        print(self._params[model])
+        self._models[model] = xgb.train(self._params[model], xgtrain, self._params[model]["n_estimators"])
 
-        # Fit Bayesian-optimized model to test sample
-        self.models["bo"] = xgb.XGBClassifier(**params_bo)
-        self.models["bo"].fit(self.X_train,self.y_train)
+    def predict(self, xgtest, model="optimized"):
+        return self._models[model].predict(xgtest)
 
-        return self._bo.res
-
-    def get_score(self, model_name):
-        return self.models[model_name]._Booster.predict(self._xgtest)
-
-    def get_roc(self, model_name):
-        fpr, tpr, thresholds = metrics.roc_curve(self.y_test, self.get_score(model_name))
-
-        return fpr, tpr, thresholds
-
-    def get_results_df(self):
+    @property
+    def summary(self):
         res = dict(self._bo.res["all"])
 
         n = len(res["params"])
@@ -224,9 +257,8 @@ class XgboFitter:
 
         data["stage"] = [0] + [1] * self._init_points + [2] * n_iter_eff
 
-        for name in ["train-auc-mean", "train-auc-std",
-                     "test-auc-mean", "test-auc-std"]:
-            data[name] = [cvr[name].values[-1] for cvr in self.cv_results]
+        for name in self._cv_cols:
+            data[name] = [cvr[name].values[-1] for cvr in self._cv_results]
 
         for k in hyperparams_ranges.keys():
             data[k] = [res["params"][i][k] for i in range(n)]
@@ -242,26 +274,18 @@ class XgboRegressor(XgboFitter):
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
-                 nfold             = 3,
-                 init_points       = 5,
-                 n_iter            = 50,
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
-                 test_size         = 0.25,
                  nthread           = 16,
             ):
-        super(XgboRegressor, self).__init__(random_state      = random_state,
+        super(XgboRegressor, self).__init__(
+                                            random_state      = random_state,
                                             num_rounds_max    = num_rounds_max,
                                             early_stop_rounds = early_stop_rounds,
-                                            nfold             = nfold,
-                                            init_points       = init_points,
-                                            n_iter            = n_iter,
                                             max_run_time      = max_run_time, # 50 h
                                             train_time_factor = train_time_factor,
-                                            test_size         = test_size,
                                             nthread           = nthread,
-                                            regression        = True,
-                 )
+                                            regression        = True)
 
 
 class XgboClassifier(XgboFitter):
@@ -269,23 +293,15 @@ class XgboClassifier(XgboFitter):
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
-                 nfold             = 3,
-                 init_points       = 5,
-                 n_iter            = 50,
                  max_run_time      = 180000, # 50 h
                  train_time_factor = 5,
-                 test_size         = 0.25,
                  nthread           = 16,
             ):
-        super(XgboRegressor, self).__init__(random_state      = random_state,
-                                            num_rounds_max    = num_rounds_max,
-                                            early_stop_rounds = early_stop_rounds,
-                                            nfold             = nfold,
-                                            init_points       = init_points,
-                                            n_iter            = n_iter,
-                                            max_run_time      = max_run_time, # 50 h
-                                            train_time_factor = train_time_factor,
-                                            test_size         = test_size,
-                                            nthread           = nthread,
-                                            regression        = False,
-                 )
+        super(XgboClassifier, self).__init__(
+                                             random_state      = random_state,
+                                             num_rounds_max    = num_rounds_max,
+                                             early_stop_rounds = early_stop_rounds,
+                                             max_run_time      = max_run_time, # 50 h
+                                             train_time_factor = train_time_factor,
+                                             nthread           = nthread,
+                                             regression        = False)

@@ -1,4 +1,5 @@
 import time
+import xgboost as xgb
 
 def callback_overtraining(best_test_auc, callback_status):
 
@@ -71,6 +72,8 @@ def callback_print_info(n_skip=10):
         n = env.iteration
         train_auc = env.evaluation_result_list[0][1]
         test_auc  = env.evaluation_result_list[1][1]
+
+        input(env)
 
         if n % n_skip == 0:
             print("[{0:4d}]\ttrain-eval:{1:.6f}\ttest-eval:{2:.6f}".format(n, train_auc, test_auc))
