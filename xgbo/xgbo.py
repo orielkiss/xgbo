@@ -4,7 +4,8 @@ import xgboost as xgb
 from scipy.special import logit
 import pandas as pd
 import time
-from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout, callback_replace_rms, early_stop
+from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout, early_stop
+import os
 
 
 def evaleffrms(preds, dtrain):
@@ -83,7 +84,7 @@ class XgboFitter(object):
         _random_state (int): seed for random number generation
     """
 
-    def __init__(self,
+    def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -102,6 +103,11 @@ class XgboFitter(object):
                           classification. This column has to contain zeros and
                           ones.
         """
+        self._out_dir = out_dir
+
+        if not os.path.exists(os.path.join(out_dir, "cv_results")):
+            os.makedirs(os.path.join(out_dir, "cv_results"))
+
         self._random_state      = random_state
         self._num_rounds_max    = num_rounds_max
         self._early_stop_rounds = early_stop_rounds
@@ -153,6 +159,7 @@ class XgboFitter(object):
         self._params = {}
 
         self._cv_results = []
+        self._cvi = 0
 
         #
         self._callback_status = []
@@ -179,9 +186,7 @@ class XgboFitter(object):
 
         if self._regression:
             callbacks= [callback_print_info(),
-                        callback_replace_rms(),
-                        early_stop(self._early_stop_rounds, start_round=100, verbose=True)]
-                        # callback_timeout(self._max_training_time, best_test_eval_metric, callback_status)]
+                        early_stop(self._early_stop_rounds, start_round=200, verbose=True, eval_idx=-2)]
             feval   = evaleffrms
         else:
             callbacks= [callback_print_info(),
@@ -198,6 +203,9 @@ class XgboFitter(object):
                            callbacks=callbacks,
                            feval=feval)
 
+        cv_result.to_csv(os.path.join(self._out_dir, "cv_results/{0:04d}.csv".format(self._cvi)))
+        self._cvi = self._cvi+1
+
         if self._max_training_time is None and not self._train_time_factor is None:
             self._max_training_time = self._train_time_factor * (time.time() - training_start_time)
 
@@ -213,7 +221,6 @@ class XgboFitter(object):
 
     def optimize(self, xgtrain, init_points=3, n_iter=3, nfold=3, acq="ei"):
 
-        self._init_points = init_points
         self._nfold       = nfold
 
         # Save data in xgboosts DMatrix format so the encoding doesn't have to
@@ -228,11 +235,12 @@ class XgboFitter(object):
             self._tried_default = True
 
         # Do the Bayesian optimization
-        self._bo.maximize(init_points=self._init_points, n_iter=0, acq=acq)
+        self._bo.maximize(init_points=init_points, n_iter=0, acq=acq)
 
         self._started_bo = True
         for i in range(n_iter):
             self._bo.maximize(init_points=0, n_iter=1, acq=acq)
+            self.summary.to_csv(os.path.join(self._out_dir, "optimization.csv"))
 
             if not self._max_run_time is None and time.time() - self._start_time > self._max_run_time:
                 print("Bayesian optimization timeout")
@@ -263,11 +271,7 @@ class XgboFitter(object):
         for i in range(n):
             res["params"][i] = format_params(res["params"][i])
 
-        n_iter_eff = n - 1 - self._init_points
-
         data = {}
-
-        data["stage"] = [0] + [1] * self._init_points + [2] * n_iter_eff
 
         for name in self._cv_cols:
             data[name] = [cvr[name].values[-1] for cvr in self._cv_results]
@@ -282,7 +286,7 @@ class XgboFitter(object):
 
 
 class XgboRegressor(XgboFitter):
-    def __init__(self,
+    def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -290,7 +294,7 @@ class XgboRegressor(XgboFitter):
                  train_time_factor = 5,
                  nthread           = 16,
             ):
-        super(XgboRegressor, self).__init__(
+        super(XgboRegressor, self).__init__(out_dir,
                                             random_state      = random_state,
                                             num_rounds_max    = num_rounds_max,
                                             early_stop_rounds = early_stop_rounds,
@@ -301,7 +305,7 @@ class XgboRegressor(XgboFitter):
 
 
 class XgboClassifier(XgboFitter):
-    def __init__(self, data,
+    def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
                  early_stop_rounds = 10,
@@ -309,7 +313,7 @@ class XgboClassifier(XgboFitter):
                  train_time_factor = 5,
                  nthread           = 16,
             ):
-        super(XgboClassifier, self).__init__(
+        super(XgboClassifier, self).__init__(out_dir,
                                              random_state      = random_state,
                                              num_rounds_max    = num_rounds_max,
                                              early_stop_rounds = early_stop_rounds,

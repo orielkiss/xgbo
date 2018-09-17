@@ -80,16 +80,6 @@ def callback_print_info(n_skip=10):
 
     return callback
 
-def callback_replace_rms():
-
-    def callback(env):
-        tmp1 = env.evaluation_result_list[0]
-        tmp2 = env.evaluation_result_list[2]
-        env.evaluation_result_list[1] = (u'train-rmse', tmp1[1], tmp1[2])
-        env.evaluation_result_list[3] = (u'test-rmse', tmp2[1], tmp2[2])
-
-    return callback
-
 def _fmt_metric(value, show_stdv=True):
     """format metric string"""
     if len(value) == 2:
@@ -103,7 +93,7 @@ def _fmt_metric(value, show_stdv=True):
         raise ValueError("wrong metric value")
 
 # Modification of the official early_stop callback to only trigger it from the nth round on
-def early_stop(stopping_rounds, start_round=0, maximize=False, verbose=True):
+def early_stop(stopping_rounds, start_round=0, maximize=False, verbose=True, eval_idx=-1):
     """Create a callback that activates early stoppping.
     Validation error needs to decrease at least
     every **stopping_rounds** round(s) to continue training.
@@ -138,11 +128,11 @@ def early_stop(stopping_rounds, start_round=0, maximize=False, verbose=True):
         if len(env.evaluation_result_list) > 1 and verbose:
             msg = ("Multiple eval metrics have been passed: "
                    "'{0}' will be used for early stopping.\n\n")
-            rabit.tracker_print(msg.format(env.evaluation_result_list[-1][0]))
+            rabit.tracker_print(msg.format(env.evaluation_result_list[eval_idx][0]))
         maximize_metrics = ('auc', 'map', 'ndcg')
         maximize_at_n_metrics = ('auc@', 'map@', 'ndcg@')
         maximize_score = maximize
-        metric_label = env.evaluation_result_list[-1][0]
+        metric_label = env.evaluation_result_list[eval_idx][0]
         metric = metric_label.split('-', 1)[-1]
 
         if any(metric.startswith(x) for x in maximize_at_n_metrics):
@@ -178,7 +168,7 @@ def early_stop(stopping_rounds, start_round=0, maximize=False, verbose=True):
         if env.iteration < start_round:
             return
 
-        score = env.evaluation_result_list[-1][1]
+        score = env.evaluation_result_list[eval_idx][1]
         if len(state) == 0:
             init(env)
         best_score = state['best_score']
