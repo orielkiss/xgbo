@@ -6,6 +6,7 @@ import pandas as pd
 import time
 from xgb_callbacks import callback_overtraining, callback_print_info, callback_timeout, early_stop
 import os
+import xgboost2tmva
 
 
 def evaleffrms(preds, dtrain):
@@ -141,6 +142,13 @@ class XgboFitter(object):
 
         self._regression = regression
 
+        # Increment the random state by the number of previously done
+        # experiments so we don't use the same numbers twice
+        summary_file = os.path.join(out_dir, "optimization.csv")
+        if os.path.isfile(summary_file):
+            df = pd.read_csv(summary_file)
+            self._random_state = self._random_state + len(df)
+
         # Set up the Bayesian optimization
         self._bo = BayesianOptimization(self.evaluate_xgb,
                                         hyperparams_ranges,
@@ -156,8 +164,6 @@ class XgboFitter(object):
         # this training class.
         self._models = {}
 
-        self._params = {}
-
         self._cv_results = []
         self._cvi = 0
 
@@ -165,6 +171,49 @@ class XgboFitter(object):
         self._callback_status = []
 
         self._tried_default = False
+
+        # Load the summary file if it already exists in the out_dir
+        if os.path.isfile(summary_file):
+
+            df = pd.read_csv(summary_file)
+
+            self._early_stops     = list(df.n_estimators.values)
+            self._callback_status = list(df.callback.values)
+
+            self._tried_default = True
+
+            # Load the cross validation results
+            for i in range(len(df)):
+                cv_file = os.path.join(self._out_dir, "cv_results/{0:04d}.csv".format(i))
+                self._cv_results.append(pd.read_csv(cv_file))
+            self._cvi = len(df)
+
+            # Load the optimization results so far into the Bayseian optimization opject
+            eval_col = self._cv_cols[2]
+
+            if regression:
+                idx_max =  df[eval_col].idxmin()
+                max_val = -df[eval_col].min()
+            else:
+                idx_max = df[eval_col].idxmax()
+                max_val = df[eval_col].max()
+
+            self._bo.res["max"] = {'max_val' : max_val,
+                                   'max_params' : df.loc[idx_max, hyperparams_ranges.keys()].to_dict()}
+
+            for idx in df.index:
+                value = df.loc[idx, eval_col]
+                if regression:
+                    value = -value
+                self._bo.res["all"]["values"].append(value)
+                self._bo.res["all"]["params"].append(df.loc[idx, hyperparams_ranges.keys()].to_dict())
+
+            if regression:
+                df["target"] = -df[eval_col]
+            else:
+                df["target"] = df[eval_col]
+
+            self._bo.initialize(df[["target"] + hyperparams_ranges.keys()])
 
         # self._summary = pd.DataFrame([
             # "callback", "colsample_bytree", "gamma", "max_depth",
@@ -240,25 +289,31 @@ class XgboFitter(object):
         self._started_bo = True
         for i in range(n_iter):
             self._bo.maximize(init_points=0, n_iter=1, acq=acq)
+
+            # Save summary after each step so we can interrupt at any time
             self.summary.to_csv(os.path.join(self._out_dir, "optimization.csv"))
 
             if not self._max_run_time is None and time.time() - self._start_time > self._max_run_time:
                 print("Bayesian optimization timeout")
                 break
 
-        # Set up the parameters for the default training
-        self._params["default"] = merge_two_dicts(self.params_base, xgb_default)
-        self._params["default"]["n_estimators"] = self._early_stops[0]
-
-        # Set up the parameters for the Bayesian-optimized training
-        self._params["optimized"] = merge_two_dicts(self.params_base,
-                                    format_params(self._bo.res["max"]["max_params"]))
-        self._params["optimized"]["n_estimators"] = self._early_stops[np.argmax(self._bo.res["all"]["values"])]
+        # Final save of the summary
+        self.summary.to_csv(os.path.join(self._out_dir, "optimization.csv"))
 
     def fit(self, xgtrain, model="optimized"):
-        print("Fitting with parameters")
-        print(self._params[model])
-        self._models[model] = xgb.train(self._params[model], xgtrain, self._params[model]["n_estimators"])
+
+        if model == "default":
+            # Set up the parameters for the default training
+            params = merge_two_dicts(self.params_base, xgb_default)
+            params["n_estimators"] = self._early_stops[0]
+
+        if model == "optimized":
+            # Set up the parameters for the Bayesian-optimized training
+            params = merge_two_dicts(self.params_base,
+                     format_params(self._bo.res["max"]["max_params"]))
+            params["n_estimators"] = self._early_stops[np.argmax(self._bo.res["all"]["values"])]
+
+        self._models[model] = xgb.train(params, xgtrain, params["n_estimators"])
 
     def predict(self, xgtest, model="optimized"):
         return self._models[model].predict(xgtest)
@@ -284,6 +339,24 @@ class XgboFitter(object):
 
         return pd.DataFrame(data=data)
 
+    def save_model(self, feature_names, model="optimized"):
+        """Save model from booster to binary, text and XML.
+        """
+        if not os.path.exists(os.path.join(self._out_dir, model)):
+            os.makedirs(os.path.join(self._out_dir, model))
+
+        self._models[model].dump_model(os.path.join(self._out_dir, model, 'dump.raw.txt'))
+        self._models[model].save_model(os.path.join(self._out_dir, model, 'model.bin'))
+        tmvafile = os.path.join(self._out_dir, model, "weights.xml")
+        xgboost2tmva.convert_model(self._models[model].get_dump(),
+                                   input_variables = list(zip(feature_names, len(feature_names)*['F'])),
+                                   output_xml = tmvafile)
+        os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
+        os.system("mv {0} {0}.bak".format(tmvafile))
+        os.system("mv {0}.tmp {0}".format(tmvafile))
+        # os.system("cd "+ self._out_dir + " && gzip -f {0}".format(tmvafile))
+        os.system("gzip -f {0}".format(tmvafile))
+        os.system("mv {0}.bak {0}".format(tmvafile))
 
 class XgboRegressor(XgboFitter):
     def __init__(self, out_dir,

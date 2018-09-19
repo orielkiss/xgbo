@@ -5,30 +5,9 @@ import xgboost as xgb
 from scipy import stats
 from xgbo import XgboRegressor
 import os
-import xgboost2tmva
 
-def rmseff(x, c=0.683):
-    try:
-        x = np.sort(x, kind='mergesort')
-        m = int(c*len(x)) + 1
-        return np.min(x[m:] - x[:-m])/2.0
-    except:
-        return np.nan
-
-def print_pcolor_labels(ax, X, Y, C):
-    for x1, x2, y1, y2, c in zip(
-                       X[:-1,:-1].flatten(),
-                       X[1:,1:].flatten(),
-                       Y[:-1,:-1].flatten(),
-                       Y[1:,1:].flatten(),
-                       C.flatten()):
-        x = np.mean([x1, x2])
-        y = np.mean([y1, y2])
-        if not np.isnan(c):
-            # text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=45, size=5)
-            text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=0, size=7)
-
-def load_data(file_name, entrystop=None, isEE=False):
+# def load_data(file_name, entrystop=None, isEE=False):
+def load_data(file_name, entrystop=1000, isEE=False):
 
     root_file = uproot.open(file_name)
 
@@ -56,7 +35,10 @@ def load_data(file_name, entrystop=None, isEE=False):
     else:
         branches = branches_EB + ["pt", "eta"]
 
-    df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
+    if "Electron" in file_name:
+        df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
+    if "Photon" in file_name:
+        df = root_file['een_analyzer/PhotonTree'].pandas.df(branches, entrystop=entrystop).dropna()
     print("Entries in ntuple:")
     print(len(df))
 
@@ -108,14 +90,18 @@ features_EE = [ 'rawEnergy', 'etaWidth', 'phiWidth', 'rhoValue',
 # # Launched on polui04 with 5 50
 # file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-lowpt-EB-training.root"
 
-# # Launched on polui03 with 5 1
-# file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-lowpt-EE-training.root"
+# # Launched on polui01 with 5 50
+# file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EB-training.root"
 
-# # Launched on polui01 with 0 1
+# # Launched on polui03 with 5 50
+# file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EE-training.root"
+
+# # Launched on polui06 with 5 50
 # file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-highpt-EE-training.root"
 
-# Launched on polui03 with 5 1
+# Launched on polui07 with 5 50
 file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-highpt-EB-training.root"
+
 
 isEE = '-EE-' in file_name
 
@@ -125,7 +111,8 @@ else:
     features = features_EB
 
 tmp = file_name.split("/")
-out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "")
+# out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "")
+out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "") + "_test"
 
 df_train = load_data(file_name, isEE=isEE)
 X_train = df_train[features]
@@ -135,17 +122,43 @@ xgtrain = xgb.DMatrix(X_train, label=y_train)
 # Create the XgboRegressor
 xgbo_reg = XgboRegressor(out_dir, early_stop_rounds=100)
 
-xgbo_reg.optimize(xgtrain, init_points=5, n_iter=1, acq='ei')
-# xgbo_reg.optimize(xgtrain, init_points=1, n_iter=0, acq='ei')
-print(xgbo_reg.summary)
+xgbo_reg.optimize(xgtrain, init_points=5, n_iter=10, acq='ei')
+
+xgbo_reg.fit(xgtrain, model="default")
+xgbo_reg.fit(xgtrain, model="optimized")
+
+print("Saving weight files...")
+
+xgbo_reg.save_model(features, model="default")
+xgbo_reg.save_model(features, model="optimized")
+
+
+"""
+def rmseff(x, c=0.683):
+    try:
+        x = np.sort(x, kind='mergesort')
+        m = int(c*len(x)) + 1
+        return np.min(x[m:] - x[:-m])/2.0
+    except:
+        return np.nan
+
+def print_pcolor_labels(ax, X, Y, C):
+    for x1, x2, y1, y2, c in zip(
+                       X[:-1,:-1].flatten(),
+                       X[1:,1:].flatten(),
+                       Y[:-1,:-1].flatten(),
+                       Y[1:,1:].flatten(),
+                       C.flatten()):
+        x = np.mean([x1, x2])
+        y = np.mean([y1, y2])
+        if not np.isnan(c):
+            # text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=45, size=5)
+            text = ax.text(x, y, "{:.3f}".format(c), ha="center", va="center", color="w", rotation=0, size=7)
 
 df_test  = load_data(file_name.replace("training", "testing"), isEE=isEE)
 X_test  = df_test[features]
 y_test  = df_test["target"]
 xgtest  = xgb.DMatrix(X_test , label=y_test)
-
-xgbo_reg.fit(xgtrain, model="default")
-xgbo_reg.fit(xgtrain, model="optimized")
 
 preds_default = xgbo_reg.predict(xgtest, model="default")
 preds_bo      = xgbo_reg.predict(xgtest, model="optimized")
@@ -156,29 +169,6 @@ preds_bo      = xgbo_reg.predict(xgtest, model="optimized")
 z_default = preds_default / (df_test['genEnergy']/df_test['rawEnergy'])
 z_bo      = preds_bo / (df_test['genEnergy']/df_test['rawEnergy'])
 
-
-print("Saving weight files...")
-xgbo_reg._models["default"].dump_model(os.path.join(out_dir, 'model_default.txt'))
-tmvafile = os.path.join(out_dir, "weights_default.xml")
-xgboost2tmva.convert_model(xgbo_reg._models["default"].get_dump(),
-                           input_variables = list(zip(features_EB, len(features_EB)*['F'])),
-                           output_xml = tmvafile)
-os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
-os.system("mv {0} {0}.bak".format(tmvafile))
-os.system("mv {0}.tmp {0}".format(tmvafile))
-os.system("cd "+ out_dir + " && gzip -f weights.xml")
-
-xgbo_reg._models["optimized"].dump_model(os.path.join(out_dir, 'model_optimized.txt'))
-tmvafile = os.path.join(out_dir, "weights_optimized.xml")
-xgboost2tmva.convert_model(xgbo_reg._models["optimized"].get_dump(),
-                           input_variables = list(zip(features_EB, len(features_EB)*['F'])),
-                           output_xml = tmvafile)
-os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
-os.system("mv {0} {0}.bak".format(tmvafile))
-os.system("mv {0}.tmp {0}".format(tmvafile))
-os.system("cd "+ out_dir + " && gzip -f weights.xml")
-
-"""
 bins = np.linspace(0.0, 2.0, 200)
 
 plt.hist(df_test['rawEnergy']/df_test['genEnergy'], bins=bins, histtype='step', label="uncorrected")
