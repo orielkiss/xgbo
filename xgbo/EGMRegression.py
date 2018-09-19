@@ -6,8 +6,7 @@ from scipy import stats
 from xgbo import XgboRegressor
 import os
 
-# def load_data(file_name, entrystop=None, isEE=False):
-def load_data(file_name, entrystop=1000, isEE=False):
+def load_data(file_name, entrystop=None, isEE=False):
 
     root_file = uproot.open(file_name)
 
@@ -93,14 +92,14 @@ features_EE = [ 'rawEnergy', 'etaWidth', 'phiWidth', 'rhoValue',
 # # Launched on polui01 with 5 50
 # file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EB-training.root"
 
-# # Launched on polui03 with 5 50
-# file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EE-training.root"
+# Launched on polui03 with 5 43
+file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EE-training.root"
 
 # # Launched on polui06 with 5 50
 # file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-highpt-EE-training.root"
 
-# Launched on polui07 with 5 50
-file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-highpt-EB-training.root"
+# # Launched on polui07 with 5 50
+# file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Electron/perfectIC-highpt-EB-training.root"
 
 
 isEE = '-EE-' in file_name
@@ -120,9 +119,9 @@ y_train = df_train["target"]
 xgtrain = xgb.DMatrix(X_train, label=y_train)
 
 # Create the XgboRegressor
-xgbo_reg = XgboRegressor(out_dir, early_stop_rounds=100)
+xgbo_reg = XgboRegressor(out_dir, early_stop_rounds=100, num_rounds_min=200)
 
-xgbo_reg.optimize(xgtrain, init_points=5, n_iter=10, acq='ei')
+xgbo_reg.optimize(xgtrain, init_points=1, n_iter=1, acq='ei')
 
 xgbo_reg.fit(xgtrain, model="default")
 xgbo_reg.fit(xgtrain, model="optimized")
