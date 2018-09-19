@@ -1,11 +1,12 @@
-import numpy as np
-from bayesian_optimization import BayesianOptimization
-import xgboost as xgb
-from scipy.special import logit
-import pandas as pd
-from xgb_callbacks import callback_overtraining, callback_print_info, early_stop
 import os
-import xgboost2tmva
+
+import numpy as np
+import xgboost as xgb
+import pandas as pd
+
+from .bayesian_optimization import BayesianOptimization
+from .xgb_callbacks import callback_overtraining, callback_print_info, early_stop
+from .xgboost2tmva import convert_model
 
 # Effective RMS evaluation function for xgboost
 def evaleffrms(preds, dtrain, c=0.683):
@@ -314,9 +315,9 @@ class XgboFitter(object):
 
         # Convert to TMVA or GBRForest compatible weights file
         tmvafile = os.path.join(model_dir, "weights.xml")
-        xgboost2tmva.convert_model(self._models[model].get_dump(),
-                                   input_variables = list(zip(feature_names, len(feature_names)*['F'])),
-                                   output_xml = tmvafile)
+        convert_model(self._models[model].get_dump(),
+                      input_variables = list(zip(feature_names, len(feature_names)*['F'])),
+                      output_xml = tmvafile)
         os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
         os.system("mv {0} {0}.bak".format(tmvafile))
         os.system("mv {0}.tmp {0}".format(tmvafile))
