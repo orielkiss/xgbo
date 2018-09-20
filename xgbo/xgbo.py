@@ -151,46 +151,54 @@ class XgboFitter(object):
 
         # Load the summary file if it already exists in the out_dir
         if os.path.isfile(summary_file):
+            self._load_data()
 
-            df = pd.read_csv(summary_file)
 
-            self._early_stops     = list(df.n_estimators.values)
-            self._callback_status = list(df.callback.values)
+    def _load_data(self):
 
-            self._tried_default = True
+        summary_file = os.path.join(out_dir, "summary.csv")
 
-            # Load the cross validation results
-            for i in range(len(df)):
-                cv_file = os.path.join(self._out_dir, "cv_results/{0:04d}.csv".format(i))
-                self._cv_results.append(pd.read_csv(cv_file))
-            self._cvi = len(df)
+        df = pd.read_csv(summary_file)
 
-            # Load the optimization results so far into the Bayseian optimization opject
-            eval_col = self._cv_cols[2]
+        print("Found results of {} optimization rounds in ouptut directory, loading...".format(len(df)))
 
+        self._early_stops     = list(df.n_estimators.values)
+        self._callback_status = list(df.callback.values)
+
+        self._tried_default = True
+
+        # Load the cross validation results
+        for i in range(len(df)):
+            cv_file = os.path.join(self._out_dir, "cv_results/{0:04d}.csv".format(i))
+            self._cv_results.append(pd.read_csv(cv_file))
+        self._cvi = len(df)
+
+        # Load the optimization results so far into the Bayseian optimization opject
+        eval_col = self._cv_cols[2]
+
+        if regression:
+            idx_max =  df[eval_col].idxmin()
+            max_val = -df[eval_col].min()
+        else:
+            idx_max = df[eval_col].idxmax()
+            max_val = df[eval_col].max()
+
+        self._bo.res["max"] = {'max_val' : max_val,
+                               'max_params' : df.loc[idx_max, hyperparams_ranges.keys()].to_dict()}
+
+        for idx in df.index:
+            value = df.loc[idx, eval_col]
             if regression:
-                idx_max =  df[eval_col].idxmin()
-                max_val = -df[eval_col].min()
-            else:
-                idx_max = df[eval_col].idxmax()
-                max_val = df[eval_col].max()
+                value = -value
+            self._bo.res["all"]["values"].append(value)
+            self._bo.res["all"]["params"].append(df.loc[idx, hyperparams_ranges.keys()].to_dict())
 
-            self._bo.res["max"] = {'max_val' : max_val,
-                                   'max_params' : df.loc[idx_max, hyperparams_ranges.keys()].to_dict()}
+        if regression:
+            df["target"] = -df[eval_col]
+        else:
+            df["target"] = df[eval_col]
 
-            for idx in df.index:
-                value = df.loc[idx, eval_col]
-                if regression:
-                    value = -value
-                self._bo.res["all"]["values"].append(value)
-                self._bo.res["all"]["params"].append(df.loc[idx, hyperparams_ranges.keys()].to_dict())
-
-            if regression:
-                df["target"] = -df[eval_col]
-            else:
-                df["target"] = df[eval_col]
-
-            self._bo.initialize(df[["target"] + hyperparams_ranges.keys()])
+        self._bo.initialize(df[["target"] + hyperparams_ranges.keys()])
 
     def evaluate_xgb(self, **hyperparameters):
 
