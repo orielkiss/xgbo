@@ -156,7 +156,7 @@ class XgboFitter(object):
 
     def _load_data(self):
 
-        summary_file = os.path.join(out_dir, "summary.csv")
+        summary_file = os.path.join(self._out_dir, "summary.csv")
 
         df = pd.read_csv(summary_file)
 
@@ -176,7 +176,7 @@ class XgboFitter(object):
         # Load the optimization results so far into the Bayseian optimization opject
         eval_col = self._cv_cols[2]
 
-        if regression:
+        if self._regression:
             idx_max =  df[eval_col].idxmin()
             max_val = -df[eval_col].min()
         else:
@@ -188,12 +188,12 @@ class XgboFitter(object):
 
         for idx in df.index:
             value = df.loc[idx, eval_col]
-            if regression:
+            if self._regression:
                 value = -value
             self._bo.res["all"]["values"].append(value)
             self._bo.res["all"]["params"].append(df.loc[idx, hyperparams_ranges.keys()].to_dict())
 
-        if regression:
+        if self._regression:
             df["target"] = -df[eval_col]
         else:
             df["target"] = df[eval_col]
