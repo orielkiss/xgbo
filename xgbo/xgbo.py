@@ -8,8 +8,6 @@ from .bayesian_optimization import BayesianOptimization
 from .xgb_callbacks import callback_overtraining, early_stop
 from .xgboost2tmva import convert_model
 
-from future.types import bytes, dict, int, range, str
-
 # Effective RMS evaluation function for xgboost
 def evaleffrms(preds, dtrain, c=0.683):
     labels = dtrain.get_label()
@@ -175,7 +173,7 @@ class XgboFitter(object):
             self._cv_results.append(pd.read_csv(cv_file))
         self._cvi = len(df)
 
-        # Load the optimization results so far into the Bayseian optimization opject
+        # Load the optimization results so far into the Bayesian optimization object
         eval_col = self._cv_cols[2]
 
         if self._regression:
@@ -186,21 +184,21 @@ class XgboFitter(object):
             max_val = df[eval_col].max()
 
         self._bo.res["max"] = {'max_val' : max_val,
-                               'max_params' : df.loc[idx_max, [*hyperparams_ranges]].to_dict()}
+                               'max_params' : df.loc[idx_max, list(hyperparams_ranges)].to_dict()}
 
         for idx in df.index:
             value = df.loc[idx, eval_col]
             if self._regression:
                 value = -value
             self._bo.res["all"]["values"].append(value)
-            self._bo.res["all"]["params"].append(df.loc[idx, [*hyperparams_ranges]].to_dict())
+            self._bo.res["all"]["params"].append(df.loc[idx, list(hyperparams_ranges)].to_dict())
 
         if self._regression:
             df["target"] = -df[eval_col]
         else:
             df["target"] = df[eval_col]
 
-        self._bo.initialize(df[["target"] + [*hyperparams_ranges]])
+        self._bo.initialize(df[["target"] + list(hyperparams_ranges)])
 
     def evaluate_xgb(self, **hyperparameters):
 
@@ -301,7 +299,7 @@ class XgboFitter(object):
         for name in self._cv_cols:
             data[name] = [cvr[name].values[-1] for cvr in self._cv_results]
 
-        for k in hyperparams_ranges:
+        for k, v in hyperparams_ranges.items():
             data[k] = [res["params"][i][k] for i in range(n)]
 
         data["n_estimators"] = self._early_stops

@@ -15,7 +15,9 @@ setup(
     install_requires=[
    'numpy',
    'pandas',
+   'tables',
    'xgboost',
    'sklearn',
+   'matplotlib',
     ]
 )

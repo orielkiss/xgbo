@@ -23,7 +23,7 @@ need to install ROOT! Just use uproot, a very leightweight python package:
 
 >>> import uproot 
 
->>> tree = uproot.open("../res/electron_data.hdf")["ntuplizer/tree"]
+>>> tree = uproot.open("../res/electron_data.root")["ntuplizer/tree"]
 >>> df = tree.pandas.df(branches=None, entrystop=None)
 
 Setting up the training and testing samples
@@ -92,8 +92,7 @@ from xgbo import XgboClassifier
 
 xgbo_classifier = XgboClassifier(out_dir="electron_id")
 
-# xgbo_classifier.optimize(xgtrain, init_points=5, n_iter=50, acq='ei')
-xgbo_classifier.optimize(xgtrain, init_points=0, n_iter=1, acq='ei')
+xgbo_classifier.optimize(xgtrain, init_points=1, n_iter=1, acq='ei')
 
 xgbo_classifier.fit(xgtrain, model="default")
 xgbo_classifier.fit(xgtrain, model="optimized")
