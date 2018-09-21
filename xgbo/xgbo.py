@@ -5,8 +5,10 @@ import xgboost as xgb
 import pandas as pd
 
 from .bayesian_optimization import BayesianOptimization
-from .xgb_callbacks import callback_overtraining, callback_print_info, early_stop
+from .xgb_callbacks import callback_overtraining, early_stop
 from .xgboost2tmva import convert_model
+
+from future.types import bytes, dict, int, range, str
 
 # Effective RMS evaluation function for xgboost
 def evaleffrms(preds, dtrain, c=0.683):
@@ -73,8 +75,8 @@ class XgboFitter(object):
     def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
-                 num_rounds_min    = 200,
-                 early_stop_rounds = 10,
+                 num_rounds_min    = 0,
+                 early_stop_rounds = 100,
                  nthread           = 16,
                  regression        = False,
             ):
@@ -114,7 +116,7 @@ class XgboFitter(object):
             self._cv_cols =  ["train-auc-mean", "train-auc-std",
                               "test-auc-mean", "test-auc-std"]
 
-            self.params_base['objective']   = 'binary;logitraw'
+            self.params_base['objective']   = 'binary:logitraw'
             self.params_base['eval_metric'] = 'auc'
 
         self._regression = regression
@@ -162,8 +164,8 @@ class XgboFitter(object):
 
         print("Found results of {} optimization rounds in ouptut directory, loading...".format(len(df)))
 
-        self._early_stops     = list(df.n_estimators.values)
-        self._callback_status = list(df.callback.values)
+        self._early_stops     += list(df.n_estimators.values)
+        self._callback_status += list(df.callback.values)
 
         self._tried_default = True
 
@@ -184,21 +186,21 @@ class XgboFitter(object):
             max_val = df[eval_col].max()
 
         self._bo.res["max"] = {'max_val' : max_val,
-                               'max_params' : df.loc[idx_max, hyperparams_ranges.keys()].to_dict()}
+                               'max_params' : df.loc[idx_max, [*hyperparams_ranges]].to_dict()}
 
         for idx in df.index:
             value = df.loc[idx, eval_col]
             if self._regression:
                 value = -value
             self._bo.res["all"]["values"].append(value)
-            self._bo.res["all"]["params"].append(df.loc[idx, hyperparams_ranges.keys()].to_dict())
+            self._bo.res["all"]["params"].append(df.loc[idx, [*hyperparams_ranges]].to_dict())
 
         if self._regression:
             df["target"] = -df[eval_col]
         else:
             df["target"] = df[eval_col]
 
-        self._bo.initialize(df[["target"] + hyperparams_ranges.keys()])
+        self._bo.initialize(df[["target"] + [*hyperparams_ranges]])
 
     def evaluate_xgb(self, **hyperparameters):
 
@@ -206,27 +208,27 @@ class XgboFitter(object):
                                                hyperparameters))
 
         if len(self._bo.res["all"]["values"]) == 0:
-            best_test_eval_metric = 0.0
+            best_test_eval_metric = -9999999.
         else:
+            self.summary.to_csv(os.path.join(self._out_dir, "summary.csv"))
             best_test_eval_metric = self._bo.res["all"]["values"][0]
 
         feval     = None
+        callback_status = {"status": 0}
 
         if self._regression:
-            callbacks = [callback_print_info(),
-                        early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True, eval_idx=-2)]
+            callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True, eval_idx=-2)]
             feval     = evaleffrms
         else:
-            callbacks = [callback_print_info(),
-                        early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True),
-                        callback_overtraining(best_test_eval_metric, callback_status)]
+            callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True),
+                         callback_overtraining(best_test_eval_metric, callback_status)]
 
-        callback_status = {"status": 0}
         cv_result = xgb.cv(params, self._xgtrain,
                            num_boost_round=self._num_rounds_max,
                            nfold=self._nfold,
                            seed=self._random_state,
                            callbacks=callbacks,
+                           verbose_eval=10,
                            feval=feval)
 
         cv_result.to_csv(os.path.join(self._out_dir, "cv_results/{0:04d}.csv".format(self._cvi)))
@@ -281,7 +283,7 @@ class XgboFitter(object):
                      format_params(self._bo.res["max"]["max_params"]))
             params["n_estimators"] = self._early_stops[np.argmax(self._bo.res["all"]["values"])]
 
-        self._models[model] = xgb.train(params, xgtrain, params["n_estimators"])
+        self._models[model] = xgb.train(params, xgtrain, params["n_estimators"], verbose_eval=10)
 
     def predict(self, xgtest, model="optimized"):
         return self._models[model].predict(xgtest)
@@ -299,7 +301,7 @@ class XgboFitter(object):
         for name in self._cv_cols:
             data[name] = [cvr[name].values[-1] for cvr in self._cv_results]
 
-        for k in hyperparams_ranges.keys():
+        for k in hyperparams_ranges:
             data[k] = [res["params"][i][k] for i in range(n)]
 
         data["n_estimators"] = self._early_stops
@@ -336,8 +338,8 @@ class XgboRegressor(XgboFitter):
     def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
-                 num_rounds_min    = None,
-                 early_stop_rounds = 10,
+                 num_rounds_min    = 0,
+                 early_stop_rounds = 100,
                  nthread           = 16,
             ):
         super(XgboRegressor, self).__init__(out_dir,
@@ -353,8 +355,8 @@ class XgboClassifier(XgboFitter):
     def __init__(self, out_dir,
                  random_state      = 2018,
                  num_rounds_max    = 3000,
-                 num_rounds_min    = None,
-                 early_stop_rounds = 10,
+                 num_rounds_min    = 0,
+                 early_stop_rounds = 100,
                  nthread           = 16,
             ):
         super(XgboClassifier, self).__init__(out_dir,

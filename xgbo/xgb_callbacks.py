@@ -67,19 +67,6 @@ def callback_timeout(max_time, best_test_auc, callback_status, n_fit=10):
 
     return callback
 
-def callback_print_info(n_skip=10):
-
-    def callback(env):
-        n = env.iteration
-        m = len(env.evaluation_result_list)
-        train_auc = env.evaluation_result_list[0][1]
-        test_auc  = env.evaluation_result_list[m/2][1]
-
-        if n % n_skip == 0:
-            print("[{0:4d}]\ttrain-eval:{1:.6f}\ttest-eval:{2:.6f}".format(n, train_auc, test_auc))
-
-    return callback
-
 def _fmt_metric(value, show_stdv=True):
     """format metric string"""
     if len(value) == 2:
