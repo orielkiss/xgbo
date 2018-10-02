@@ -225,7 +225,37 @@ class TargetSpace(object):
         """ Number of allocated rows """
         return 0 if self._Xarr is None else self._Xarr.shape[0]
 
-    def random_points(self, num):
+    def _lhs(self, xmin, xmax, npoints):
+        """ 
+        Latin Hypercube Sampling 
+        https://en.wikipedia.org/wiki/Latin_hypercube_sampling
+
+        Parameters
+        ----------
+        xmin : float
+            lower bound of the sampling
+
+        xmax : float
+            higher bound of the sampling
+
+        npoints : int
+            number of points to be sampled
+
+        Returns
+        ----------
+        data: ndarray
+            [npoins] array of sampled points
+
+        Example
+        -------
+        >>> TODO
+        """
+        low_bounds = np.arange(0, npoints)/float(npoints)
+        high_bounds = np.arange(1, npoints+1)/float(npoints)
+        normed_points = self.random_state.uniform(low=low_bounds, high=high_bounds, size=npoints)
+        return xmin+normed_points*(xmax-xmin)
+
+    def random_points(self, num, sampling='uniform'):
         """
         Creates random points within the bounds of the space
 
@@ -233,6 +263,10 @@ class TargetSpace(object):
         ----------
         num : int
             Number of random points to create
+
+        sampling : str
+            'uniform' (default): uniform sampling
+            'lhs': latin hypercube sampling
 
         Returns
         ----------
@@ -251,8 +285,13 @@ class TargetSpace(object):
         """
         # TODO: support integer, category, and basic scipy.optimize constraints
         data = np.empty((num, self.dim))
+        if sampling.lower() not in {'uniform', 'lhs'}:
+            raise ValueError('Sampling method can only be "uniform" or "lhs"')
+        
         for col, (lower, upper) in enumerate(self.bounds):
-            data.T[col] = self.random_state.uniform(lower, upper, size=num)
+            data.T[col] = self.random_state.uniform(lower, upper, size=num) \
+                if sampling.lower() == 'uniform' else \
+                self._lhs(lower, upper, num)
         return data
 
     def max_point(self):

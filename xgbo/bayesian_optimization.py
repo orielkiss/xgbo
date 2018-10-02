@@ -73,17 +73,22 @@ class BayesianOptimization(object):
         # Verbose
         self.verbose = verbose
 
-    def init(self, init_points):
+    def init(self, init_points, sampling='uniform'):
         """
         Initialization method to kick start the optimization process. It is a
         combination of points passed by the user, and randomly sampled ones.
 
         :param init_points:
             Number of random points to probe.
+
+        :param sampling:
+            string to steer the sampling
+            'uniform' (default): uniform sampling
+            'lhs': latin hypercube sampling
         """
         # Concatenate new random points to possible existing
         # points from self.explore method.
-        rand_points = self.space.random_points(init_points)
+        rand_points = self.space.random_points(init_points, sampling)
         self.init_points.extend(rand_points)
 
         # Evaluate target function at all initialization points
