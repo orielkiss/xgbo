@@ -313,6 +313,17 @@ class BayesianOptimization(object):
         if self.verbose:
             self.plog.print_summary()
 
+    def print_summary(self):
+        """
+        Prints the summary of the optimization
+
+        :return: None
+        """
+
+        self.plog.print_header(initialization=False)
+        for idx in range(len(self.X)):
+            self.plog.print_step(self.X[idx], self.Y[idx], idx=idx)
+        
     def points_to_csv(self, file_name):
         """
         After training all points for which we know target variable

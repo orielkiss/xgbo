@@ -188,6 +188,7 @@ class PrintLog(object):
         # Sorted indexes to access parameters
         self.sorti = sorted(range(len(self.params)),
                             key=self.params.__getitem__)
+        self.exe_times_ = []
 
     def reset_timer(self):
         self.start_time = datetime.now()
@@ -215,14 +216,21 @@ class PrintLog(object):
                   end=" | ")
         print('')
 
-    def print_step(self, x, y, warning=False):
+    def print_step(self, x, y, warning=False, idx=None):
 
-        print("{:>5d}".format(self.ite), end=" | ")
+        print("{:>5d}".format(idx if idx is not None else self.ite), end=" | ")
 
-        m, s = divmod((datetime.now() - self.last_round).total_seconds(), 60)
+        time = None
+        if idx is None:
+            time = (datetime.now() - self.last_round).total_seconds()
+            self.exe_times_.append(time)
+        else:
+            time = self.exe_times_[idx]
+            
+        m, s = divmod(time, 60)
         print("{:>02d}m{:>02d}s".format(int(m), int(s)), end=" | ")
 
-        if self.ymax is None or self.ymax < y:
+        if self.ymax is None or self.ymax <= y: #to allow replay
             self.ymax = y
             self.xmax = x
             print("{0}{2: >10.5f}{1}".format(BColours.MAGENTA,
@@ -252,9 +260,9 @@ class PrintLog(object):
                                                             BColours.ENDC))
 
         print()
-
-        self.last_round = datetime.now()
-        self.ite += 1
+        if idx is None:
+            self.last_round = datetime.now()
+            self.ite += 1
 
     def print_summary(self):
         pass
