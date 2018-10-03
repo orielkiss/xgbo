@@ -9,11 +9,13 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
 from .helpers import (UtilityFunction, PrintLog, acq_max, ensure_rng)
 from .target_space import TargetSpace
-
+import os
+import pandas as pd
 
 class BayesianOptimization(object):
 
-    def __init__(self, f, pbounds, random_state=None, verbose=1):
+    def __init__(self, f, pbounds, random_state=None, verbose=1,
+                 checkpoints=None):
         """
         :param f:
             Function to be maximized.
@@ -25,6 +27,8 @@ class BayesianOptimization(object):
         :param verbose:
             Whether or not to print progress.
 
+        :param checkpoints:
+            str, location of the csv checkpointing file, because processes and machine crash
         """
         # Store the original dictionary
         self.pbounds = pbounds
@@ -73,6 +77,25 @@ class BayesianOptimization(object):
         # Verbose
         self.verbose = verbose
 
+        # Checkpoints
+        self.checkpoint = None
+        self.npoints_recovered = None
+        if checkpoints is not None:
+            if not os.path.basename(checkpoints):
+                #Should it be a warning/exception?
+                print('The checkpoint directory is not'
+                      ' available, checkpoints will not be saved')
+            else:
+                self.checkpoint = checkpoints
+                if os.path.isfile(self.checkpoint):
+                    print('Checkpoint file found, recovering observations')
+                    df = pd.read_csv(self.checkpoint)
+                    self.npoints_recovered = df.shape[0]
+                    self.initialize_df(df)
+                    # reset the initialized flag, to allow smooth operations 
+                    self.initialized = False
+
+        
     def init(self, init_points, sampling='uniform'):
         """
         Initialization method to kick start the optimization process. It is a
@@ -86,6 +109,21 @@ class BayesianOptimization(object):
             'uniform' (default): uniform sampling
             'lhs': latin hypercube sampling
         """
+        if self.npoints_recovered is not None:
+            tmp = self.npoints_recovered
+            self.npoints_recovered -= init_points
+            init_points -= tmp
+            #ensure that se do not sample the same points
+            #quite hacky, but works
+            if init_points > 0:
+                self.space.random_state.uniform(size=tmp)
+            else: #if it covers the full initialization
+                self.initialized = True
+
+        #if already initialized or recovered more than the init points
+        if self.initialized or init_points <= 0:
+            return
+
         # Concatenate new random points to possible existing
         # points from self.explore method.
         rand_points = self.space.random_points(init_points, sampling)
@@ -94,15 +132,6 @@ class BayesianOptimization(object):
         # Evaluate target function at all initialization points
         for x in self.init_points:
             y = self._observe_point(x)
-
-        # Add the points from `self.initialize` to the observations
-        if self.x_init:
-            x_init = np.vstack(self.x_init)
-            y_init = np.hstack(self.y_init)
-            for x, y in zip(x_init, y_init):
-                self.space.add_observation(x, y)
-                if self.verbose:
-                    self.plog.print_step(x, y)
 
         # Updates the flag
         self.initialized = True
@@ -117,6 +146,9 @@ class BayesianOptimization(object):
 
         if self.verbose:
             self.plog.print_step(x, y, pwarning)
+
+        if self.checkpoint:
+            self.points_to_csv(self.checkpoint)
         return y
 
     def explore(self, points_dict, eager=False):
@@ -163,6 +195,17 @@ class BayesianOptimization(object):
                 all_points.append(points_dict[key][i])
             self.x_init.append(all_points)
 
+        if self.x_init:
+            x_init = np.vstack(self.x_init)
+            y_init = np.hstack(self.y_init)
+            for x, y in zip(x_init, y_init):
+                self.space.add_observation(x, y)
+                if self.verbose:
+                    self.plog.print_step(x, y)
+        
+        # Updates the flag
+        self.initialized = True
+        
     def initialize_df(self, points_df):
         """
         Method to introduce point for which the target function
@@ -182,15 +225,24 @@ class BayesianOptimization(object):
 
         :return:
         """
+        if self.verbose:
+            self.plog.print_header()
 
         for i in points_df.index:
-            self.y_init.append(points_df.loc[i, 'target'])
+            y = points_df.loc[i, 'target']
+            self.y_init.append(y)
 
             all_points = []
             for key in self.space.keys:
                 all_points.append(points_df.loc[i, key])
 
             self.x_init.append(all_points)
+            self.space.add_observation(all_points, y)
+            if self.verbose:
+                self.plog.print_step(all_points, y)
+
+        # Updates the flag
+        self.initialized = True
 
     def set_bounds(self, new_bounds):
         """
@@ -254,6 +306,9 @@ class BayesianOptimization(object):
             if self.verbose:
                 self.plog.print_header()
             self.init(init_points)
+
+        if self.npoints_recovered is not None and self.npoints_recovered > 0:
+            n_iter -= self.npoints_recovered
 
         y_max = self.space.Y.max()
 
