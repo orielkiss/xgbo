@@ -8,6 +8,8 @@ from .bayesian_optimization import BayesianOptimization
 from .xgb_callbacks import callback_overtraining, early_stop
 from .xgboost2tmva import convert_model
 
+import warnings
+
 # Effective RMS evaluation function for xgboost
 def evaleffrms(preds, dtrain, c=0.683):
     labels = dtrain.get_label()
@@ -310,6 +312,7 @@ class XgboFitter(object):
     def save_model(self, feature_names, model="optimized"):
         """Save model from booster to binary, text and XML.
         """
+        print("Saving model")
         model_dir = os.path.join(self._out_dir, "model_" + model)
 
         if not os.path.exists(model_dir):
@@ -323,14 +326,17 @@ class XgboFitter(object):
 
         # Convert to TMVA or GBRForest compatible weights file
         tmvafile = os.path.join(model_dir, "weights.xml")
-        convert_model(self._models[model].get_dump(),
-                      input_variables = list(zip(feature_names, len(feature_names)*['F'])),
-                      output_xml = tmvafile)
-        os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
-        os.system("mv {0} {0}.bak".format(tmvafile))
-        os.system("mv {0}.tmp {0}".format(tmvafile))
-        os.system("gzip -f {0}".format(tmvafile))
-        os.system("mv {0}.bak {0}".format(tmvafile))
+        try:
+            convert_model(self._models[model].get_dump(),
+                          input_variables = list(zip(feature_names, len(feature_names)*['F'])),
+                          output_xml = tmvafile)
+            os.system("xmllint --format {0} > {0}.tmp".format(tmvafile))
+            os.system("mv {0} {0}.bak".format(tmvafile))
+            os.system("mv {0}.tmp {0}".format(tmvafile))
+            os.system("gzip -f {0}".format(tmvafile))
+            os.system("mv {0}.bak {0}".format(tmvafile))
+        except:
+            warnings.warn("Warning:\nSaving model in TMVA XML format failed.\nDon't worry now, you can still convert the xgboost model later.")
 
 class XgboRegressor(XgboFitter):
     def __init__(self, out_dir,
