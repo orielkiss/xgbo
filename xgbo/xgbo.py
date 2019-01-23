@@ -79,6 +79,7 @@ class XgboFitter(object):
                  early_stop_rounds = 100,
                  nthread           = 16,
                  regression        = False,
+                 useEffSigma       =True
             ):
         """The __init__ method for XgboFitter class.
 
@@ -107,11 +108,14 @@ class XgboFitter(object):
             'nthread'     : nthread,
             'objective'   : 'reg:linear',
             }
-
+        
         if regression:
-            self._cv_cols =  ["train-effrms-mean", "train-effrms-std",
-                              "test-effrms-mean", "test-effrms-std"]
-
+            if useEffSigma:
+                self._cv_cols =  ["train-effrms-mean", "train-effrms-std",
+                                  "test-effrms-mean", "test-effrms-std"]
+            else:
+                self._cv_cols =  ["train-rmse-mean", "train-rmse-std",
+                                  "test-rmse-mean", "test-rmse-std"]
         else:
             self._cv_cols =  ["train-auc-mean", "train-auc-std",
                               "test-auc-mean", "test-auc-std"]
@@ -120,6 +124,7 @@ class XgboFitter(object):
             self.params_base['eval_metric'] = 'auc'
 
         self._regression = regression
+        self._useEffSigma = useEffSigma
 
         # Increment the random state by the number of previously done
         # experiments so we don't use the same numbers twice
@@ -217,8 +222,12 @@ class XgboFitter(object):
         callback_status = {"status": 0}
 
         if self._regression:
-            callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True, eval_idx=-2)]
-            feval     = evaleffrms
+            if self._useEffSigma:
+                callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True, eval_idx=-2)]
+                feval     = evaleffrms
+            else:
+                callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True),
+                             callback_overtraining(best_test_eval_metric, callback_status)]
         else:
             callbacks = [early_stop(self._early_stop_rounds, start_round=self._num_rounds_min, verbose=True),
                          callback_overtraining(best_test_eval_metric, callback_status)]

@@ -34,10 +34,10 @@ def load_data(file_name, entrystop=None, isEE=False):
     else:
         branches = branches_EB + ["pt", "eta"]
 
-    if "Electron" in file_name:
-        df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
-    if "Photon" in file_name:
-        df = root_file['een_analyzer/PhotonTree'].pandas.df(branches, entrystop=entrystop).dropna()
+#    if "Electron" in file_name:
+#        df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
+#    if "Photon" in file_name:
+    df = root_file['een_analyzer/PhotonTree'].pandas.df(branches, entrystop=entrystop).dropna()
     print("Entries in ntuple:")
     print(len(df))
 
@@ -86,7 +86,7 @@ features_EE = [ 'rawEnergy', 'etaWidth', 'phiWidth', 'rhoValue',
         'e2x5TopOverE5x5', 'e2x5BottomOverE5x5', 'e2x5LeftOverE5x5',
         'e2x5RightOverE5x5', 'iXSeed', 'iYSeed', 'preshowerEnergyOverrawEnergy']
 
-file_name = "/eos/cms/store/group/phys_egamma/EgammaRegression/94X/Photon/perfectIC-highpt-EB-training.root"
+file_name = "/scratch/micheli/perfectIC-highpt-EB-training.root"
 
 
 isEE = '-EE-' in file_name
@@ -97,7 +97,7 @@ else:
     features = features_EB
 
 tmp = file_name.split("/")
-out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "")
+out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "_test20190122")
 
 df_train = load_data(file_name, isEE=isEE)
 X_train = df_train[features]
@@ -105,7 +105,7 @@ y_train = df_train["target"]
 xgtrain = xgb.DMatrix(X_train, label=y_train)
 
 # Create the XgboRegressor
-xgbo_reg = XgboRegressor(out_dir, early_stop_rounds=100, num_rounds_min=200)
+xgbo_reg = XgboRegressor(out_dir, early_stop_rounds=5, num_rounds_min=100)
 
 xgbo_reg.optimize(xgtrain, init_points=1, n_iter=1, acq='ei')
 
