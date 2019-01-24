@@ -34,10 +34,10 @@ def load_data(file_name, entrystop=None, isEE=False):
     else:
         branches = branches_EB + ["pt", "eta"]
 
-#    if "Electron" in file_name:
-#        df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
-#    if "Photon" in file_name:
-    df = root_file['een_analyzer/PhotonTree'].pandas.df(branches, entrystop=entrystop).dropna()
+    if "Electron" in file_name:
+        df = root_file['een_analyzer/ElectronTree'].pandas.df(branches, entrystop=entrystop).dropna()
+    if "Photon" in file_name:
+        df = root_file['een_analyzer/PhotonTree'].pandas.df(branches, entrystop=entrystop).dropna()
     print("Entries in ntuple:")
     print(len(df))
 
@@ -86,8 +86,8 @@ features_EE = [ 'rawEnergy', 'etaWidth', 'phiWidth', 'rhoValue',
         'e2x5TopOverE5x5', 'e2x5BottomOverE5x5', 'e2x5LeftOverE5x5',
         'e2x5RightOverE5x5', 'iXSeed', 'iYSeed', 'preshowerEnergyOverrawEnergy']
 
-file_name = "/scratch/micheli/perfectIC-highpt-EB-training.root"
-
+#file_name = "/scratch/micheli/Electron/perfectIC-highpt-EB-training.root"
+file_name = "/scratch/micheli/Electron/perfectIC-lowpt-EB-training.root"
 
 isEE = '-EE-' in file_name
 
@@ -97,7 +97,7 @@ else:
     features = features_EB
 
 tmp = file_name.split("/")
-out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "_test20190122_2")
+out_dir = tmp[-2] + "_" + tmp[-1].replace("-training.root", "_test20190124")
 
 def rmseff(x, c=0.683):
     try:
@@ -151,7 +151,7 @@ plt.hist(df_test['rawEnergy']/df_test['genEnergy'], bins=bins, histtype='step', 
 plt.hist(z_default, bins=bins, histtype='step', label='corrected (default)')
 plt.hist(z_bo, bins=bins, histtype='step', label='corrected (optimized)')
 ax = plt.gca()
-plt.title("High pT photons in EE with perfectIC")
+plt.title("Electrons in EB with perfectIC")
 plt.xlabel("E measured / E gen")
 plt.legend(loc="upper left")
 plt.savefig(os.path.join(out_dir, "dist.png"))
@@ -163,7 +163,7 @@ plt.hist(df_test['rawEnergy']/df_test['genEnergy'], bins=bins_zoom, histtype='st
 plt.hist(z_default, bins=bins_zoom, histtype='step', label='corrected (default)')
 plt.hist(z_bo, bins=bins_zoom, histtype='step', label='corrected (optimized)')
 ax = plt.gca()
-plt.title("High pT photons in EE with perfectIC")
+plt.title("Electrons in EB with perfectIC")
 plt.xlabel("E measured / E gen")
 plt.legend(loc="upper left")
 plt.savefig(os.path.join(out_dir, "dist_zoom.png"))
