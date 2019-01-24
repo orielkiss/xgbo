@@ -24,9 +24,9 @@ def evaleffrms(preds, dtrain, c=0.683):
 hyperparams_ranges = {'min_child_weight': (1, 20),
                     'colsample_bytree': (0.1, 1),
                     'max_depth': (2, 15),
-                    'subsample': (0.5, 1),
+#                    'subsample': (0.5, 1),
                     'gamma': (0, 10),
-                    'reg_alpha': (0, 10),
+#                    'reg_alpha': (0, 10),
                     'reg_lambda': (0, 10)}
 
 # The default xgboost parameters
@@ -45,9 +45,9 @@ def format_params(params):
     p['min_child_weight'] = p["min_child_weight"]
     p['colsample_bytree'] = max(min(p["colsample_bytree"], 1), 0)
     p['max_depth']        = int(p["max_depth"])
-    p['subsample']        = max(min(p["subsample"], 1), 0)
+#    p['subsample']        = max(min(p["subsample"], 1), 0)
     p['gamma']            = max(p["gamma"], 0)
-    p['reg_alpha']        = max(p["reg_alpha"], 0)
+#    p['reg_alpha']        = max(p["reg_alpha"], 0)
     p['reg_lambda']       = max(p["reg_lambda"], 0)
     return p
 
@@ -110,6 +110,7 @@ class XgboFitter(object):
             }
         
         if regression:
+            xgb_default['base_score']=1#for regression the base_score should be 1, not 0.5. If enough iteration this will not matter much
             if useEffSigma:
                 self._cv_cols =  ["train-effrms-mean", "train-effrms-std",
                                   "test-effrms-mean", "test-effrms-std"]
